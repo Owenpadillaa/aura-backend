@@ -1,0 +1,28 @@
+# Aura Backend — Python Dependencies
+# Pinned versions for reproducible builds on Render.com free tier
+
+fastapi==0.115.12
+uvicorn[standard]==0.34.3
+pydantic==2.11.4
+pydantic-settings==2.9.1
+python-dotenv==1.1.0
+
+# Google Calendar API
+google-api-python-client==2.170.0
+google-auth-httplib2==0.2.0
+google-auth-oauthlib==1.2.2
+
+# Google Gemini AI
+google-generativeai==0.8.5
+
+# Supabase
+supabase==2.15.1
+
+# HTTP client
+httpx==0.28.1
+
+# Scheduling
+apscheduler==3.11.0
+
+# CORS / middleware
+python-multipart==0.0.20
