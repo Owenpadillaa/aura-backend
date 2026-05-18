@@ -49,6 +49,7 @@ def _build_credentials() -> Credentials:
         token_uri="https://oauth2.googleapis.com/token",
         client_id=settings.google_client_id,
         client_secret=settings.google_client_secret,
+        scopes=["https://www.googleapis.com/auth/calendar"],
     )
 
 
