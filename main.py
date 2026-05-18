@@ -27,9 +27,18 @@ from models.schemas import (
     OptimizedSchedule,
 )
 from scheduler import optimize_day
-from services.calendar_service import create_event, fetch_events, import_from_url
+from services.calendar_service import fetch_events, import_from_url
 from services.gemini_service import chat, get_budget_recommendation
-from services.supabase_service import add_expense, delete_expense, get_expenses, get_fluid_tasks, get_habit_summary
+from services.supabase_service import (
+    add_expense,
+    create_calendar_event,
+    delete_calendar_event,
+    delete_expense,
+    get_calendar_events,
+    get_expenses,
+    get_fluid_tasks,
+    get_habit_summary,
+)
 from cron import start_proactive_engine, stop_proactive_engine
 
 # ── Logging ──────────────────────────────────────────────────
@@ -100,16 +109,51 @@ async def calendar_sync(
 
 
 @app.post("/api/calendar/events")
-async def create_calendar_event(req: CreateEventRequest):
-    """Create a new event in Google Calendar."""
+async def create_event_endpoint(req: CreateEventRequest):
+    """Create a new calendar event (stored in Supabase)."""
     try:
-        event = create_event(req)
-        return event.model_dump(mode="json")
+        row = await create_calendar_event(
+            title=req.title,
+            start=req.start.isoformat(),
+            end=req.end.isoformat(),
+            flexibility=req.flexibility.value if hasattr(req.flexibility, 'value') else str(req.flexibility),
+        )
+        return row
     except Exception as exc:
         logger.error(f"Create event error: {exc}", exc_info=True)
         return JSONResponse(
             status_code=500,
             content={"error": f"Failed to create event: {str(exc)}"},
+        )
+
+
+@app.get("/api/calendar/events")
+async def list_calendar_events(date: Optional[str] = Query(None)):
+    """Get calendar events, optionally filtered by date."""
+    try:
+        rows = await get_calendar_events(date)
+        return {"events": rows}
+    except Exception as exc:
+        logger.error(f"List events error: {exc}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to fetch events: {str(exc)}"},
+        )
+
+
+@app.delete("/api/calendar/events/{event_id}")
+async def remove_calendar_event(event_id: str):
+    """Delete a calendar event by ID."""
+    try:
+        deleted = await delete_calendar_event(event_id)
+        if deleted:
+            return {"deleted": True}
+        return JSONResponse(status_code=404, content={"error": "Event not found"})
+    except Exception as exc:
+        logger.error(f"Delete event error: {exc}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to delete event: {str(exc)}"},
         )
 
 

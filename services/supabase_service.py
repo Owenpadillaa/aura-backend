@@ -150,3 +150,62 @@ async def delete_expense(expense_id: str) -> bool:
         return len(result.data or []) > 0
 
     return await asyncio.to_thread(_delete)
+
+
+# ── Calendar Events (user-created, stored in Supabase) ───────
+
+
+async def create_calendar_event(title: str, start: str, end: str, flexibility: str = "fluid") -> dict[str, Any]:
+    """Create a calendar event in Supabase.
+
+    Returns:
+        The inserted row as a dict.
+    """
+    def _insert() -> dict[str, Any]:
+        result = _client.table("calendar_events").insert({
+            "title": title,
+            "start": start,
+            "end": end,
+            "flexibility": flexibility,
+        }).execute()
+        return result.data[0] if result.data else {}
+
+    return await asyncio.to_thread(_insert)
+
+
+async def get_calendar_events(date: str | None = None) -> list[dict[str, Any]]:
+    """Fetch calendar events, optionally filtered by date.
+
+    Args:
+        date: ISO date string (YYYY-MM-DD). If None, returns all events.
+
+    Returns:
+        List of event dicts.
+    """
+    def _query() -> list[dict[str, Any]]:
+        q = _client.table("calendar_events").select("*")
+        if date:
+            q = q.gte("start", f"{date}T00:00:00").lte("start", f"{date}T23:59:59")
+        q = q.order("start")
+        result = q.execute()
+        return result.data or []
+
+    return await asyncio.to_thread(_query)
+
+
+async def delete_calendar_event(event_id: str) -> bool:
+    """Delete a calendar event by ID.
+
+    Returns:
+        True if deleted successfully.
+    """
+    def _delete() -> bool:
+        result = (
+            _client.table("calendar_events")
+            .delete()
+            .eq("id", event_id)
+            .execute()
+        )
+        return len(result.data or []) > 0
+
+    return await asyncio.to_thread(_delete)
