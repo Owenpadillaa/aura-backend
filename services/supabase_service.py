@@ -132,3 +132,21 @@ async def get_expenses() -> list[dict[str, Any]]:
         return result.data or []
 
     return await asyncio.to_thread(_query)
+
+
+async def delete_expense(expense_id: str) -> bool:
+    """Delete an expense by ID.
+
+    Returns:
+        True if deleted successfully.
+    """
+    def _delete() -> bool:
+        result = (
+            _client.table("expenses")
+            .delete()
+            .eq("id", expense_id)
+            .execute()
+        )
+        return len(result.data or []) > 0
+
+    return await asyncio.to_thread(_delete)

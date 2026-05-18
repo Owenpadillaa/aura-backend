@@ -56,6 +56,25 @@ class OptimizedSchedule(BaseModel):
     generated_at: datetime
 
 
+class CreateEventRequest(BaseModel):
+    """Request body for POST /api/calendar/events."""
+    title: str = Field(min_length=1, max_length=500)
+    start: datetime
+    end: datetime
+    flexibility: Flexibility = Flexibility.FLUID
+
+
+class CalendarImportUrlRequest(BaseModel):
+    """Request body for POST /api/calendar/import-url."""
+    url: str = Field(min_length=1)
+
+
+class CalendarImportResponse(BaseModel):
+    """Response for POST /api/calendar/import-url."""
+    events: list[CalendarEvent]
+    count: int
+
+
 # ── Chat ─────────────────────────────────────────────────────
 
 class ChatRequest(BaseModel):

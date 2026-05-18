@@ -17,17 +17,19 @@ from fastapi.responses import JSONResponse
 from config.settings import settings
 from models.schemas import (
     BudgetResponse,
+    CalendarImportUrlRequest,
     ChatRequest,
     ChatResponse,
+    CreateEventRequest,
     ExpenseEntry,
     ExpenseListResponse,
     HealthResponse,
     OptimizedSchedule,
 )
 from scheduler import optimize_day
-from services.calendar_service import fetch_events
+from services.calendar_service import create_event, fetch_events, import_from_url
 from services.gemini_service import chat, get_budget_recommendation
-from services.supabase_service import add_expense, get_expenses, get_fluid_tasks, get_habit_summary
+from services.supabase_service import add_expense, delete_expense, get_expenses, get_fluid_tasks, get_habit_summary
 from cron import start_proactive_engine, stop_proactive_engine
 
 # ── Logging ──────────────────────────────────────────────────
@@ -95,6 +97,53 @@ async def calendar_sync(
             status_code=500,
             content={"error": f"Failed to sync calendar: {str(exc)}"},
         )
+
+
+@app.post("/api/calendar/events")
+async def create_calendar_event(req: CreateEventRequest):
+    """Create a new event in Google Calendar."""
+    try:
+        event = create_event(req)
+        return event.model_dump(mode="json")
+    except Exception as exc:
+        logger.error(f"Create event error: {exc}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to create event: {str(exc)}"},
+        )
+
+
+@app.post("/api/calendar/import-url")
+async def import_calendar_url(req: CalendarImportUrlRequest):
+    """Import events from a public ICS calendar URL."""
+    try:
+        events = await import_from_url(req.url)
+        return {
+            "events": [e.model_dump(mode="json") for e in events],
+            "count": len(events),
+        }
+    except Exception as exc:
+        logger.error(f"Import URL error: {exc}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to import calendar: {str(exc)}"},
+        )
+
+
+@app.get("/api/calendar/google/connect")
+async def google_calendar_connect():
+    """Return Google Calendar OAuth URL (placeholder for future OAuth flow)."""
+    return {"auth_url": None, "connected": False, "message": "Google Calendar uses env-based auth"}
+
+
+@app.get("/api/calendar/google/status")
+async def google_calendar_status():
+    """Check Google Calendar connection status."""
+    try:
+        events = fetch_events()
+        return {"connected": True, "event_count": len(events)}
+    except Exception:
+        return {"connected": False}
 
 
 @app.get("/api/schedule/optimize")
@@ -195,6 +244,22 @@ async def list_expenses():
         return JSONResponse(
             status_code=500,
             content={"error": f"Failed to fetch expenses: {str(exc)}"},
+        )
+
+
+@app.delete("/api/expenses/{expense_id}")
+async def remove_expense(expense_id: str):
+    """Delete an expense by ID."""
+    try:
+        deleted = await delete_expense(expense_id)
+        if deleted:
+            return {"deleted": True}
+        return JSONResponse(status_code=404, content={"error": "Expense not found"})
+    except Exception as exc:
+        logger.error(f"Delete expense error: {exc}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to delete expense: {str(exc)}"},
         )
 
 
