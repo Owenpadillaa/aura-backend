@@ -223,13 +223,41 @@ async def schedule_optimize(
 
 @app.post("/api/chat", response_model=ChatResponse)
 async def chat_endpoint(request: ChatRequest):
-    """Send a text message to Gemini 1.5 Flash."""
+    """Send a text message to Gemini 1.5 Flash and handle event creation."""
     try:
         response_text = chat(
             message=request.message,
             context=request.context,
         )
-        return ChatResponse(response=response_text)
+
+        # Parse and execute any CREATE_EVENT commands from the AI response
+        import re
+        event_pattern = r'\[CREATE_EVENT\|([^|]+)\|([^|]+)\|([^|]+)\|([^\]]+)\]'
+        events_created = []
+        cleaned_response = response_text
+
+        for match in re.finditer(event_pattern, response_text):
+            title, start_str, end_str, flexibility = match.groups()
+            try:
+                row = await create_calendar_event(
+                    title=title.strip(),
+                    start=start_str.strip(),
+                    end=end_str.strip(),
+                    flexibility=flexibility.strip(),
+                )
+                events_created.append(title.strip())
+            except Exception as e:
+                logger.error(f"Failed to create event from AI: {e}")
+
+        # Remove the [CREATE_EVENT|...] markers from the response
+        cleaned_response = re.sub(event_pattern, '', cleaned_response).strip()
+
+        # Add confirmation if events were created
+        if events_created:
+            event_list = ", ".join(f'"{e}"' for e in events_created)
+            cleaned_response += f"\n\nAdded {event_list} to your calendar."
+
+        return ChatResponse(response=cleaned_response)
     except Exception as exc:
         logger.error(f"Chat error: {exc}", exc_info=True)
         return JSONResponse(
