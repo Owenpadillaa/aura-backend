@@ -62,6 +62,9 @@ class CreateEventRequest(BaseModel):
     start: datetime
     end: datetime
     flexibility: Flexibility = Flexibility.FLUID
+    recurrence_rule: Optional[str] = Field(default=None, description="'weekly' for recurring events")
+    recurrence_days: Optional[list[int]] = Field(default=None, description="0=Mon..6=Sun for weekly recurrence")
+    recurrence_end_date: Optional[str] = Field(default=None, description="ISO date YYYY-MM-DD when recurrence stops")
 
 
 class CalendarImportUrlRequest(BaseModel):

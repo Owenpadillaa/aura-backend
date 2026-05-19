@@ -118,6 +118,9 @@ async def create_event_endpoint(req: CreateEventRequest):
             start=req.start.isoformat(),
             end=req.end.isoformat(),
             flexibility=req.flexibility.value if hasattr(req.flexibility, 'value') else str(req.flexibility),
+            recurrence_rule=req.recurrence_rule,
+            recurrence_days=req.recurrence_days,
+            recurrence_end_date=req.recurrence_end_date,
         )
         return row
     except Exception as exc:
@@ -129,10 +132,15 @@ async def create_event_endpoint(req: CreateEventRequest):
 
 
 @app.get("/api/calendar/events")
-async def list_calendar_events(date: Optional[str] = Query(None)):
-    """Get calendar events, optionally filtered by date."""
+async def list_calendar_events(
+    date: Optional[str] = Query(None),
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+):
+    """Get calendar events, optionally filtered by date or date range.
+    Recurring events are expanded into instances for the queried range."""
     try:
-        rows = await get_calendar_events(date)
+        rows = await get_calendar_events(date=date, start_date=start_date, end_date=end_date)
         return {"events": rows}
     except Exception as exc:
         logger.error(f"List events error: {exc}", exc_info=True)
