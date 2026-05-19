@@ -310,6 +310,66 @@ async def habit_checkin(req: HabitCheckinRequest):
         )
 
 
+@app.post("/api/habits/session")
+async def habit_session(body: dict):
+    """Log a focus session (workout/study) with duration and check in the habit."""
+    try:
+        habit_id = body.get("habit_id")
+        duration_minutes = body.get("duration_minutes", 0)
+        session_type = body.get("type", "session")
+        if not habit_id:
+            return JSONResponse(status_code=400, content={"error": "habit_id required"})
+        # Complete the habit (increments streak)
+        result = await complete_habit(habit_id)
+        if result:
+            return {**result, "duration_minutes": duration_minutes, "session_type": session_type}
+        return JSONResponse(status_code=404, content={"error": "Habit not found"})
+    except Exception as exc:
+        logger.error(f"Session log error: {exc}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to log session: {str(exc)}"},
+        )
+
+
+@app.get("/api/expenses/daily")
+async def daily_expenses():
+    """Get daily expense totals for the last 7 days."""
+    try:
+        from services.supabase_service import get_daily_expense_totals
+        days = await get_daily_expense_totals()
+        return {"days": days}
+    except Exception as exc:
+        logger.error(f"Daily expenses error: {exc}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to fetch daily expenses: {str(exc)}"},
+        )
+
+
+@app.get("/api/quote")
+async def daily_quote():
+    """Get a motivational quote of the day (cached)."""
+    try:
+        from services.supabase_service import get_user_setting, set_user_setting
+        from services.gemini_service import chat
+        import hashlib
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        cached = await get_user_setting("daily_quote")
+        if cached and cached.get("date") == today:
+            return {"quote": cached["quote"], "cached": True}
+        # Generate new quote
+        quote = chat(
+            message="Write ONE short motivational quote for a student balancing classes, work, and fitness. Max 80 characters. No attribution, no emojis, just the quote text.",
+            context=f"Date: {today}",
+        )
+        await set_user_setting("daily_quote", {"date": today, "quote": quote.strip()})
+        return {"quote": quote.strip(), "cached": False}
+    except Exception as exc:
+        logger.error(f"Quote error: {exc}", exc_info=True)
+        return {"quote": "Every rep counts. Every hour studied is an investment.", "cached": True}
+
+
 # ── Expenses / Budget ────────────────────────────────────────
 
 @app.post("/api/expenses")

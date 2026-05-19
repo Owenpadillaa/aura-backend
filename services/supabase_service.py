@@ -397,6 +397,50 @@ async def get_weekly_expenses_total() -> float:
     return sum(float(r.get("amount", 0)) for r in rows)
 
 
+async def get_daily_expense_totals() -> list[dict[str, Any]]:
+    """Get daily expense totals for the last 7 days.
+
+    Returns:
+        List of 7 dicts: [{"date": "2026-05-18", "total": 12.50, "day": "Sun"}, ...]
+    """
+    from datetime import datetime, timedelta, timezone
+
+    def _query() -> list[dict[str, Any]]:
+        now = datetime.now(timezone.utc)
+        week_ago = (now - timedelta(days=7)).isoformat()
+        result = (
+            _client.table("expenses")
+            .select("*")
+            .gte("created_at", week_ago)
+            .execute()
+        )
+        return result.data or []
+
+    rows = await asyncio.to_thread(_query)
+
+    # Group by date
+    totals: dict[str, float] = {}
+    for row in rows:
+        date_str = row.get("created_at", "")[:10]  # YYYY-MM-DD
+        amount = float(row.get("amount", 0))
+        totals[date_str] = totals.get(date_str, 0) + amount
+
+    # Build 7-day array
+    now = datetime.now(timezone.utc)
+    days = []
+    for i in range(6, -1, -1):
+        d = now - timedelta(days=i)
+        date_str = d.strftime("%Y-%m-%d")
+        days.append({
+            "date": date_str,
+            "total": round(totals.get(date_str, 0), 2),
+            "day": d.strftime("%a")[0],
+            "is_today": i == 0,
+        })
+
+    return days
+
+
 # ── Habit Completion ─────────────────────────────────────
 
 
