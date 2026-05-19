@@ -26,3 +26,6 @@ apscheduler==3.11.0
 
 # CORS / middleware
 python-multipart==0.0.20
+
+# Web Push notifications
+pywebpush==2.0.1

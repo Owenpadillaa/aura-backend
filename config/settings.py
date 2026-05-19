@@ -33,6 +33,11 @@ class Settings(BaseSettings):
     day_end_hour: int = Field(default=23, description="Day window end (24h)")
     timezone: str = Field(default="America/New_York", description="Local timezone")
 
+    # Web Push (VAPID)
+    vapid_public_key: str = Field(default="", description="VAPID public key for push notifications")
+    vapid_private_key: str = Field(default="", description="VAPID private key for push notifications")
+    vapid_email: str = Field(default="mailto:aura@example.com", description="VAPID contact email")
+
 
 # Singleton — import `settings` everywhere
 settings = Settings()

@@ -5,6 +5,7 @@ Main entry point. Wires up all routes, middleware, and background tasks.
 
 from __future__ import annotations
 
+import json
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -363,6 +364,83 @@ async def budget_recommend(weekly_earnings: float, expenses: list[dict]):
         return JSONResponse(
             status_code=500,
             content={"error": f"Budget recommendation failed: {str(exc)}"},
+        )
+
+
+# ── Push Notifications ────────────────────────────────────────
+
+# In-memory store for push subscriptions (use Supabase in production)
+_push_subscriptions: list[dict] = []
+
+
+@app.get("/api/push/vapid-key")
+async def get_vapid_public_key():
+    """Return the VAPID public key for push subscription."""
+    if not settings.vapid_public_key:
+        return JSONResponse(
+            status_code=404,
+            content={"error": "Push notifications not configured"},
+        )
+    return {"publicKey": settings.vapid_public_key}
+
+
+@app.post("/api/push/subscribe")
+async def store_push_subscription(subscription: dict):
+    """Store a push notification subscription."""
+    # Avoid duplicates
+    endpoint = subscription.get("endpoint", "")
+    _push_subscriptions[:] = [s for s in _push_subscriptions if s.get("endpoint") != endpoint]
+    _push_subscriptions.append(subscription)
+    logger.info(f"Push subscription stored: {endpoint[:50]}...")
+    return {"status": "subscribed"}
+
+
+@app.post("/api/push/send")
+async def send_push_notification(payload: dict):
+    """Send a push notification to all subscribers."""
+    if not settings.vapid_private_key:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "Push notifications not configured"},
+        )
+
+    try:
+        from pywebpush import webpush, WebPushException
+
+        title = payload.get("title", "Aura")
+        body = payload.get("body", "")
+        sent = 0
+        failed = []
+
+        for sub in _push_subscriptions:
+            try:
+                webpush(
+                    subscription_info=sub,
+                    data=json.dumps({"title": title, "body": body}),
+                    vapid_private_key=settings.vapid_private_key,
+                    vapid_claims={"sub": settings.vapid_email},
+                )
+                sent += 1
+            except WebPushException:
+                failed.append(sub.get("endpoint", ""))
+
+        # Remove failed subscriptions
+        _push_subscriptions[:] = [
+            s for s in _push_subscriptions
+            if s.get("endpoint") not in failed
+        ]
+
+        return {"sent": sent, "failed": len(failed)}
+    except ImportError:
+        return JSONResponse(
+            status_code=500,
+            content={"error": "pywebpush not installed"},
+        )
+    except Exception as exc:
+        logger.error(f"Push send error: {exc}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to send push: {str(exc)}"},
         )
 
 
