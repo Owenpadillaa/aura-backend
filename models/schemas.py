@@ -96,6 +96,7 @@ class ChatResponse(BaseModel):
 
 class HabitEntry(BaseModel):
     """A single habit with its streak and completion metrics."""
+    id: Optional[str] = None
     name: str
     streak: int = 0
     last_completed: Optional[datetime] = None
@@ -106,6 +107,11 @@ class HabitSummary(BaseModel):
     """Aggregate habit summary response."""
     habits: list[HabitEntry]
     generated_at: datetime
+
+
+class HabitCheckinRequest(BaseModel):
+    """Request body for POST /api/habits/checkin."""
+    habit_id: str
 
 
 # ── Expenses / Budget ────────────────────────────────────────

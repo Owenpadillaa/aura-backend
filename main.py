@@ -24,6 +24,7 @@ from models.schemas import (
     CreateEventRequest,
     ExpenseEntry,
     ExpenseListResponse,
+    HabitCheckinRequest,
     HealthResponse,
     OptimizedSchedule,
 )
@@ -32,6 +33,7 @@ from services.calendar_service import fetch_events, import_from_url
 from services.gemini_service import chat, get_budget_recommendation
 from services.supabase_service import (
     add_expense,
+    complete_habit,
     create_calendar_event,
     delete_calendar_event,
     delete_expense,
@@ -39,7 +41,10 @@ from services.supabase_service import (
     get_expenses,
     get_fluid_tasks,
     get_habit_summary,
+    get_user_setting,
+    set_user_setting,
 )
+from services.push_service import send_push_to_all
 from cron import start_proactive_engine, stop_proactive_engine
 
 # ── Logging ──────────────────────────────────────────────────
@@ -289,6 +294,22 @@ async def habits_summary():
         )
 
 
+@app.post("/api/habits/checkin")
+async def habit_checkin(req: HabitCheckinRequest):
+    """Mark a habit as completed for today."""
+    try:
+        result = await complete_habit(req.habit_id)
+        if result:
+            return result
+        return JSONResponse(status_code=404, content={"error": "Habit not found"})
+    except Exception as exc:
+        logger.error(f"Habit checkin error: {exc}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to check in habit: {str(exc)}"},
+        )
+
+
 # ── Expenses / Budget ────────────────────────────────────────
 
 @app.post("/api/expenses")
@@ -377,8 +398,7 @@ async def budget_recommend(weekly_earnings: float, expenses: list[dict]):
 
 # ── Push Notifications ────────────────────────────────────────
 
-# In-memory store for push subscriptions (use Supabase in production)
-_push_subscriptions: list[dict] = []
+from services.supabase_service import save_push_subscription
 
 
 @app.get("/api/push/vapid-key")
@@ -394,61 +414,61 @@ async def get_vapid_public_key():
 
 @app.post("/api/push/subscribe")
 async def store_push_subscription(subscription: dict):
-    """Store a push notification subscription."""
-    # Avoid duplicates
-    endpoint = subscription.get("endpoint", "")
-    _push_subscriptions[:] = [s for s in _push_subscriptions if s.get("endpoint") != endpoint]
-    _push_subscriptions.append(subscription)
-    logger.info(f"Push subscription stored: {endpoint[:50]}...")
-    return {"status": "subscribed"}
+    """Store a push notification subscription in Supabase."""
+    try:
+        result = await save_push_subscription(subscription)
+        logger.info(f"Push subscription stored: {subscription.get('endpoint', '')[:50]}...")
+        return {"status": "subscribed"}
+    except Exception as exc:
+        logger.error(f"Push subscribe error: {exc}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to store subscription: {str(exc)}"},
+        )
 
 
 @app.post("/api/push/send")
 async def send_push_notification(payload: dict):
     """Send a push notification to all subscribers."""
-    if not settings.vapid_private_key:
-        return JSONResponse(
-            status_code=400,
-            content={"error": "Push notifications not configured"},
-        )
+    title = payload.get("title", "Aura")
+    body = payload.get("body", "")
+    result = await send_push_to_all(title=title, body=body)
+    if "error" in result:
+        return JSONResponse(status_code=400, content=result)
+    return result
 
+
+# ── User Settings ────────────────────────────────────────
+
+
+@app.get("/api/settings/{key}")
+async def get_setting(key: str):
+    """Get a user setting by key."""
     try:
-        from pywebpush import webpush, WebPushException
-
-        title = payload.get("title", "Aura")
-        body = payload.get("body", "")
-        sent = 0
-        failed = []
-
-        for sub in _push_subscriptions:
-            try:
-                webpush(
-                    subscription_info=sub,
-                    data=json.dumps({"title": title, "body": body}),
-                    vapid_private_key=settings.vapid_private_key,
-                    vapid_claims={"sub": settings.vapid_email},
-                )
-                sent += 1
-            except WebPushException:
-                failed.append(sub.get("endpoint", ""))
-
-        # Remove failed subscriptions
-        _push_subscriptions[:] = [
-            s for s in _push_subscriptions
-            if s.get("endpoint") not in failed
-        ]
-
-        return {"sent": sent, "failed": len(failed)}
-    except ImportError:
-        return JSONResponse(
-            status_code=500,
-            content={"error": "pywebpush not installed"},
-        )
+        value = await get_user_setting(key)
+        if value is not None:
+            return {"key": key, "value": value}
+        return JSONResponse(status_code=404, content={"error": "Setting not found"})
     except Exception as exc:
-        logger.error(f"Push send error: {exc}", exc_info=True)
+        logger.error(f"Get setting error: {exc}", exc_info=True)
         return JSONResponse(
             status_code=500,
-            content={"error": f"Failed to send push: {str(exc)}"},
+            content={"error": f"Failed to get setting: {str(exc)}"},
+        )
+
+
+@app.post("/api/settings/{key}")
+async def update_setting(key: str, body: dict):
+    """Set a user setting by key."""
+    try:
+        value = body.get("value")
+        result = await set_user_setting(key, value)
+        return {"status": "ok", "key": key}
+    except Exception as exc:
+        logger.error(f"Set setting error: {exc}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to set setting: {str(exc)}"},
         )
 
 

@@ -72,6 +72,7 @@ async def get_habit_summary() -> HabitSummary:
             last_completed = datetime.fromisoformat(row["last_completed"])
 
         habits.append(HabitEntry(
+            id=row.get("id"),
             name=row["name"],
             streak=row.get("streak", 0),
             last_completed=last_completed,
@@ -309,3 +310,159 @@ async def delete_calendar_event(event_id: str) -> bool:
         return len(result.data or []) > 0
 
     return await asyncio.to_thread(_delete)
+
+
+# ── Push Subscriptions ────────────────────────────────────
+
+
+async def save_push_subscription(subscription: dict[str, Any]) -> dict[str, Any]:
+    """Upsert a push subscription by endpoint."""
+    endpoint = subscription.get("endpoint", "")
+    keys = subscription.get("keys", {})
+
+    def _upsert() -> dict[str, Any]:
+        result = _client.table("push_subscriptions").upsert({
+            "endpoint": endpoint,
+            "p256dh": keys.get("p256dh", ""),
+            "auth_key": keys.get("auth", ""),
+        }, on_conflict="endpoint").execute()
+        return result.data[0] if result.data else {}
+
+    return await asyncio.to_thread(_upsert)
+
+
+async def get_all_push_subscriptions() -> list[dict[str, Any]]:
+    """Get all push subscriptions formatted for pywebpush."""
+    def _query() -> list[dict[str, Any]]:
+        result = _client.table("push_subscriptions").select("*").execute()
+        rows = result.data or []
+        return [
+            {
+                "endpoint": row["endpoint"],
+                "keys": {
+                    "p256dh": row["p256dh"],
+                    "auth": row["auth_key"],
+                },
+            }
+            for row in rows
+        ]
+
+    return await asyncio.to_thread(_query)
+
+
+async def delete_push_subscription(endpoint: str) -> bool:
+    """Delete a push subscription by endpoint."""
+    def _delete() -> bool:
+        result = (
+            _client.table("push_subscriptions")
+            .delete()
+            .eq("endpoint", endpoint)
+            .execute()
+        )
+        return len(result.data or []) > 0
+
+    return await asyncio.to_thread(_delete)
+
+
+# ── Date-Filtered Expenses ────────────────────────────────
+
+
+async def get_expenses_by_date_range(start_date: str, end_date: str) -> list[dict[str, Any]]:
+    """Fetch expenses within a date range.
+
+    Args:
+        start_date: ISO datetime string (inclusive).
+        end_date: ISO datetime string (inclusive).
+    """
+    def _query() -> list[dict[str, Any]]:
+        result = (
+            _client.table("expenses")
+            .select("*")
+            .gte("created_at", start_date)
+            .lte("created_at", end_date)
+            .order("created_at", desc=True)
+            .execute()
+        )
+        return result.data or []
+
+    return await asyncio.to_thread(_query)
+
+
+async def get_weekly_expenses_total() -> float:
+    """Sum of all expenses from the last 7 days."""
+    from datetime import datetime, timedelta, timezone
+    now = datetime.now(timezone.utc)
+    week_ago = (now - timedelta(days=7)).isoformat()
+    rows = await get_expenses_by_date_range(week_ago, now.isoformat())
+    return sum(float(r.get("amount", 0)) for r in rows)
+
+
+# ── Habit Completion ─────────────────────────────────────
+
+
+async def complete_habit(habit_id: str) -> dict[str, Any]:
+    """Mark a habit as completed today.
+
+    Increments streak if last_completed was yesterday, resets if older.
+    """
+    def _update() -> dict[str, Any]:
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc)
+        today = now.date()
+
+        # Get current habit
+        result = _client.table("habits").select("*").eq("id", habit_id).execute()
+        if not result.data:
+            return {}
+        habit = result.data[0]
+
+        # Calculate new streak
+        streak = habit.get("streak", 0)
+        last = habit.get("last_completed")
+        if last:
+            last_date = datetime.fromisoformat(last).date()
+            if last_date == today:
+                # Already completed today, no change
+                return habit
+            elif last_date == (today - timedelta(days=1)):
+                streak += 1
+            else:
+                streak = 1
+        else:
+            streak = 1
+
+        update_result = _client.table("habits").update({
+            "streak": streak,
+            "last_completed": now.isoformat(),
+        }).eq("id", habit_id).execute()
+
+        return update_result.data[0] if update_result.data else {}
+
+    return await asyncio.to_thread(_update)
+
+
+# ── User Settings ─────────────────────────────────────────
+
+
+async def get_user_setting(key: str) -> Any:
+    """Get a user setting by key."""
+    def _query() -> Any:
+        result = _client.table("user_settings").select("*").eq("key", key).execute()
+        if result.data:
+            return result.data[0].get("value")
+        return None
+
+    return await asyncio.to_thread(_query)
+
+
+async def set_user_setting(key: str, value: Any) -> dict[str, Any]:
+    """Upsert a user setting by key."""
+    def _upsert() -> dict[str, Any]:
+        result = _client.table("user_settings").upsert({
+            "key": key,
+            "value": value,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }, on_conflict="key").execute()
+        return result.data[0] if result.data else {}
+
+    return await asyncio.to_thread(_upsert)

@@ -155,3 +155,55 @@ Analyze this spending and provide budget recommendations. How should I allocate 
 
     response = model.generate_content(prompt)
     return response.text
+
+
+# ── Proactive Notification Generation ─────────────────────
+
+
+_NOTIFICATION_SYSTEM_PROMPT = """You are Aura, a proactive personal growth assistant generating a short push notification.
+
+Rules:
+- Write ONE notification, max 120 characters
+- Be direct and helpful, like a sharp assistant
+- Reference the user's actual data (calendar, budget, streaks) naturally
+- Always end with something actionable
+- No emojis, no fluff, no greetings
+- Use the user's name if provided in context"""
+
+_NOTIFICATION_TEMPLATES = {
+    "morning": (
+        "Write a morning briefing notification. Summarize today's key schedule items, "
+        "note the budget situation for the day, and mention any streaks to maintain."
+    ),
+    "hourly": (
+        "Write a contextual check-in notification based on the current time and schedule. "
+        "Mention upcoming events, remaining daily budget, and streak status. "
+        "Focus on what matters right now in the next 1-2 hours."
+    ),
+    "evening": (
+        "Write an evening debrief notification. Summarize the day's spending vs budget, "
+        "streak status, and any remaining tasks. Close with encouragement for tomorrow."
+    ),
+}
+
+
+def chat_notification(context: str, notification_type: str = "hourly") -> str:
+    """Generate a short push notification message using Gemini.
+
+    Args:
+        context: The user's current context (calendar, budget, habits, time).
+        notification_type: One of "morning", "hourly", "evening".
+
+    Returns:
+        A short notification string (max ~120 chars).
+    """
+    model = genai.GenerativeModel(
+        model_name="gemini-flash-latest",
+        system_instruction=_NOTIFICATION_SYSTEM_PROMPT,
+    )
+
+    template = _NOTIFICATION_TEMPLATES.get(notification_type, _NOTIFICATION_TEMPLATES["hourly"])
+    full_prompt = f"{template}\n\n## Current Context\n{context}"
+
+    response = model.generate_content(full_prompt)
+    return response.text.strip()
